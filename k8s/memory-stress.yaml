@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Pod
+
+metadata:
+  name: memory-stress
+
+spec:
+  restartPolicy: Never
+
+  containers:
+    - name: memory-stress
+
+      image: python:3.12-slim
+
+      command:
+        - python
+
+      args:
+        - -c
+        - |
+          import time
+
+          print("Starting memory stress test", flush=True)
+
+          x = []
+
+          while True:
+              x.append("X" * 1024 * 1024)
+
+              print(
+                  f"Allocated approximately {len(x)} MB",
+                  flush=True
+              )
+
+              time.sleep(0.1)
+
+      resources:
+        limits:
+          memory: "50Mi"
+
+        requests:
+          memory: "20Mi"
