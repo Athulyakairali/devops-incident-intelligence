@@ -1,6 +1,10 @@
-FROM python:3.12-slim
+FROM python:3.12-alpine
 
 WORKDIR /app
+
+RUN apk update \
+    && apk upgrade \
+    && rm -rf /var/cache/apk/*
 
 COPY requirements.txt .
 
