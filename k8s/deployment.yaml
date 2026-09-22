@@ -20,7 +20,7 @@ spec:
       containers:
         - name: incident-intelligence
 
-          image: incident-intelligence:1.0
+          image: incident-intelligence:ci
 
           imagePullPolicy: Never
 
