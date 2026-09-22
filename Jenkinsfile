@@ -3,6 +3,7 @@ pipeline {
     agent any
 
     environment {
+        PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         DOCKER = "/usr/local/bin/docker"
         KUBECTL = "/usr/local/bin/kubectl"
         MINIKUBE = "/opt/homebrew/bin/minikube"
@@ -29,6 +30,12 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh '''
+                    echo "Docker:"
+                    $DOCKER --version
+
+                    echo "Docker credential helper:"
+                    which docker-credential-desktop
+
                     $DOCKER build \
                         -t incident-intelligence:ci \
                         .
@@ -50,7 +57,6 @@ pipeline {
                 '''
             }
         }
-
     }
 
     post {
