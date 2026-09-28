@@ -23,24 +23,98 @@ def get_pods():
 
 
 def analyze_container(container):
+
     incidents = []
 
-    # Current container state
     current_state = container.get("state", {})
+
+    # ---------------------------------------------------------
+
+    # Current waiting state
+
+    # ---------------------------------------------------------
+
+    waiting = current_state.get("waiting")
+
+    if waiting:
+
+        reason = waiting.get("reason")
+
+        if reason in INCIDENT_REASONS:
+
+            incidents.append({
+
+                "type": INCIDENT_REASONS[reason],
+
+                "reason": reason,
+
+                "message": waiting.get("message"),
+
+            })
+
+            # CrashLoopBackOff is the current incident.
+
+            # Do not also report the previous Error state.
+
+            return incidents
+
+    # ---------------------------------------------------------
+
+    # Current terminated state
+
+    # ---------------------------------------------------------
 
     terminated = current_state.get("terminated")
 
     if terminated:
+
         reason = terminated.get("reason")
 
         if reason in INCIDENT_REASONS:
+
             incidents.append({
+
                 "type": INCIDENT_REASONS[reason],
+
                 "reason": reason,
+
                 "exit_code": terminated.get("exitCode"),
+
             })
 
-    # Previous container state
+            return incidents
+
+    # ---------------------------------------------------------
+
+    # Previous terminated state
+
+    # ---------------------------------------------------------
+
+    last_state = container.get("lastState", {})
+
+    previous_terminated = last_state.get("terminated")
+
+    if previous_terminated:
+
+        reason = previous_terminated.get("reason")
+
+        if reason in INCIDENT_REASONS:
+
+            incidents.append({
+
+                "type": INCIDENT_REASONS[reason],
+
+                "reason": reason,
+
+                "exit_code": previous_terminated.get("exitCode"),
+
+            })
+
+    return incidents
+    # ---------------------------------------------------------
+    # Previous terminated state
+    # ---------------------------------------------------------
+
     last_state = container.get("lastState", {})
 
     previous_terminated = last_state.get("terminated")
@@ -55,19 +129,6 @@ def analyze_container(container):
                 "exit_code": previous_terminated.get("exitCode"),
             })
 
-    # Waiting state, e.g. CrashLoopBackOff
-    waiting = current_state.get("waiting")
-
-    if waiting:
-        reason = waiting.get("reason")
-
-        if reason in INCIDENT_REASONS:
-            incidents.append({
-                "type": INCIDENT_REASONS[reason],
-                "reason": reason,
-                "message": waiting.get("message"),
-            })
-
     return incidents
 
 
@@ -77,6 +138,7 @@ def detect_incidents():
     incidents = []
 
     for pod in data["items"]:
+
         pod_name = pod["metadata"]["name"]
 
         container_statuses = pod["status"].get(
@@ -89,6 +151,7 @@ def detect_incidents():
             detected = analyze_container(container)
 
             for incident in detected:
+
                 incident["pod"] = pod_name
                 incident["container"] = container["name"]
 
@@ -97,8 +160,34 @@ def detect_incidents():
     return incidents
 
 
+def remove_duplicates(incidents):
+    unique_incidents = []
+
+    seen = set()
+
+    for incident in incidents:
+
+        key = (
+            incident.get("pod"),
+            incident.get("container"),
+            incident.get("type"),
+            incident.get("reason"),
+        )
+
+        if key not in seen:
+
+            seen.add(key)
+
+            unique_incidents.append(incident)
+
+    return unique_incidents
+
+
 def main():
+
     incidents = detect_incidents()
+
+    incidents = remove_duplicates(incidents)
 
     if not incidents:
         print("No incidents detected.")
@@ -107,7 +196,13 @@ def main():
     print("INCIDENTS DETECTED")
 
     for incident in incidents:
-        print(json.dumps(incident, indent=2))
+
+        print(
+            json.dumps(
+                incident,
+                indent=2,
+            )
+        )
 
 
 if __name__ == "__main__":

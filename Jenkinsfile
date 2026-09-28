@@ -22,11 +22,17 @@ pipeline {
         stage('Test') {
             steps {
                 sh '''
+                    echo "Running Python tests..."
+
                     python3 --version
 
                     python3 -m py_compile app.py
 
                     python3 -m py_compile engine/*.py
+
+                    python3 -m unittest discover \
+                        -s tests \
+                        -v
                 '''
             }
         }
