@@ -94,11 +94,20 @@ pipeline {
                     $KUBECTL apply \
                         -f k8s/service.yaml
 
+                    echo "Restarting deployment to use the new image..."
+
+                    $KUBECTL rollout restart \
+                        deployment/incident-intelligence
+
                     echo "Waiting for deployment rollout..."
 
                     $KUBECTL rollout status \
                         deployment/incident-intelligence \
                         --timeout=120s
+
+                    echo "Deployment completed successfully."
+
+                    $KUBECTL get pods
                 '''
             }
         }
