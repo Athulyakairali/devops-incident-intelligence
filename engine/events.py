@@ -1,44 +1,31 @@
-import json
-import subprocess
+from kubernetes import client
+
+from engine.detector import get_kubernetes_client
 
 
 def get_events():
-    result = subprocess.run(
-        [
-            "kubectl",
-            "get",
-            "events",
-            "-o",
-            "json",
-            "--sort-by=.lastTimestamp",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
 
-    return json.loads(result.stdout)
+    api = get_kubernetes_client()
+
+    response = api.list_event_for_all_namespaces()
+
+    return client.ApiClient().sanitize_for_serialization(response)
 
 
 def get_pod_info(pod_name):
-    result = subprocess.run(
-        [
-            "kubectl",
-            "get",
-            "pod",
-            pod_name,
-            "-o",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
+
+    api = get_kubernetes_client()
+
+    response = api.read_namespaced_pod(
+        name=pod_name,
+        namespace="default",
     )
 
-    return json.loads(result.stdout)
+    return client.ApiClient().sanitize_for_serialization(response)
 
 
 def get_pod_events(pod_name):
+
     pod = get_pod_info(pod_name)
 
     pod_uid = pod["metadata"]["uid"]

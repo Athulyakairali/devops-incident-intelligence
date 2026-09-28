@@ -1,30 +1,27 @@
-from engine.detector import detect_incidents
+from kubernetes import client
+
+from engine.detector import detect_incidents, get_kubernetes_client
 from engine.events import get_pod_events
 from engine.logs import get_pod_logs
+from engine.rca import generate_rca
 
 
 def get_pod_details(pod_name):
-    import json
-    import subprocess
 
-    result = subprocess.run(
-        [
-            "kubectl",
-            "get",
-            "pod",
-            pod_name,
-            "-o",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
+    api = get_kubernetes_client()
+
+    response = api.read_namespaced_pod(
+        name=pod_name,
+        namespace="default",
     )
 
-    return json.loads(result.stdout)
+    return client.ApiClient().sanitize_for_serialization(
+        response
+    )
 
 
 def analyze_incident(incident):
+
     pod = incident["pod"]
 
     events = get_pod_events(pod)
@@ -60,33 +57,9 @@ def analyze_incident(incident):
 
         report["severity"] = "HIGH"
 
-        report["root_cause"] = (
-            "The container exceeded its configured "
-            "memory limit and was terminated by Kubernetes."
-        )
-
-        report["recommendations"] = [
-            "Review application memory consumption.",
-            "Investigate potential memory leaks.",
-            "Adjust the Kubernetes memory limit if justified.",
-            "Review memory requests and limits.",
-        ]
-
     elif incident["reason"] == "CrashLoopBackOff":
 
         report["severity"] = "HIGH"
-
-        report["root_cause"] = (
-            "The container is repeatedly crashing "
-            "and Kubernetes is backing off restarts."
-        )
-
-        report["recommendations"] = [
-            "Inspect application logs.",
-            "Inspect the previous container state.",
-            "Verify application configuration.",
-            "Check environment variables and dependencies.",
-        ]
 
     elif incident["reason"] in [
         "ImagePullBackOff",
@@ -95,31 +68,40 @@ def analyze_incident(incident):
 
         report["severity"] = "MEDIUM"
 
-        report["root_cause"] = (
-            "Kubernetes could not pull the configured "
-            "container image."
-        )
-
-        report["recommendations"] = [
-            "Verify the image name.",
-            "Verify the image tag.",
-            "Check registry authentication.",
-            "Check registry availability.",
-        ]
-
     else:
 
         report["severity"] = "MEDIUM"
 
-        report["root_cause"] = (
-            "The exact root cause could not be determined."
-        )
+    # Generate RCA using the complete incident report.
+    rca = generate_rca(report)
 
-        report["recommendations"] = [
-            "Inspect Kubernetes events.",
-            "Inspect application logs.",
-            "Review pod configuration.",
-        ]
+    report.update({
+
+    "root_cause": rca.get("root_cause"),
+
+    "confirmed_evidence": rca.get("confirmed_evidence", []),
+
+    "likely_contributing_factors": rca.get(
+
+        "likely_contributing_factors",
+
+        []
+
+    ),
+
+    "unknowns": rca.get("unknowns", []),
+
+    "recommended_actions": rca.get(
+
+        "recommended_actions",
+
+        rca.get("recommendations", [])
+
+    ),
+
+    "confidence": rca.get("confidence"),
+
+})
 
     return report
 
@@ -137,73 +119,54 @@ def print_report(report):
     print(f"Incident Type : {report['incident_type']}")
     print(f"Severity      : {report['severity']}")
     print(f"Reason        : {report['reason']}")
-
-    if report["exit_code"] is not None:
-        print(f"Exit Code     : {report['exit_code']}")
-
+    print(f"Exit Code     : {report['exit_code']}")
     print(f"Pod Status    : {report['pod_status']}")
     print(f"Memory Limit  : {report['memory_limit']}")
 
     print()
-    print("ROOT CAUSE")
+    print("ROOT CAUSE ANALYSIS")
     print("-" * 70)
-    print(report["root_cause"])
+    print(report.get("root_cause", "Not available."))
 
     print()
-    print("APPLICATION EVIDENCE")
+    print("CONFIRMED EVIDENCE")
     print("-" * 70)
 
-    if report["logs"]:
-        print(report["logs"])
-    else:
-        print("No application logs available.")
-
-    print()
-    print("INCIDENT TIMELINE")
-    print("-" * 70)
-
-    if report["events"]:
-
-        for event in report["events"]:
-
-            timestamp = (
-                event.get("timestamp")
-                or "unknown"
-            )
-
-            reason = (
-                event.get("reason")
-                or "unknown"
-            )
-
-            message = (
-                event.get("message")
-                or ""
-            )
-
-            print(
-                f"{timestamp} | "
-                f"{reason} | "
-                f"{message}"
-            )
-
-    else:
-        print("No Kubernetes events found.")
-
-    print()
-    print("RECOMMENDED ACTIONS")
-    print("-" * 70)
-
-    for number, recommendation in enumerate(
-        report["recommendations"],
-        start=1,
+    for evidence in report.get(
+        "confirmed_evidence",
+        [],
     ):
+        print(f"- {evidence}")
 
-        print(
-            f"{number}. {recommendation}"
-        )
+    print()
+    print("LIKELY CONTRIBUTING FACTORS")
+    print("-" * 70)
 
-    print("=" * 70)
+    for factor in report.get(
+        "likely_contributing_factors",
+        [],
+    ):
+        print(f"- {factor}")
+
+    print()
+    print("UNKNOWN / UNCONFIRMED")
+    print("-" * 70)
+
+    for unknown in report.get(
+        "unknowns",
+        [],
+    ):
+        print(f"- {unknown}")
+
+    print()
+    print("RECOMMENDATIONS")
+    print("-" * 70)
+
+    for recommendation in report.get(
+        "recommendations",
+        [],
+    ):
+        print(f"- {recommendation}")
 
 
 def main():
@@ -211,16 +174,12 @@ def main():
     incidents = detect_incidents()
 
     if not incidents:
-
         print("No incidents detected.")
-
         return
 
     for incident in incidents:
 
-        report = analyze_incident(
-            incident
-        )
+        report = analyze_incident(incident)
 
         print_report(report)
 

@@ -1,5 +1,8 @@
 import json
-import subprocess
+import os
+
+from kubernetes import client
+from kubernetes import config
 
 
 INCIDENT_REASONS = {
@@ -11,28 +14,52 @@ INCIDENT_REASONS = {
 }
 
 
+def get_kubernetes_client():
+
+    if os.getenv("KUBERNETES_IN_CLUSTER") == "true":
+
+        configuration = client.Configuration()
+
+        configuration.host = os.getenv(
+            "KUBERNETES_API_SERVER"
+        )
+
+        configuration.ssl_ca_cert = "/certs/ca.crt"
+        configuration.cert_file = "/certs/client.crt"
+        configuration.key_file = "/certs/client.key"
+
+        configuration.verify_ssl = False
+
+        return client.CoreV1Api(
+            client.ApiClient(configuration)
+        )
+
+    config.load_kube_config()
+
+    return client.CoreV1Api()
+
+
 def get_pods():
-    result = subprocess.run(
-        ["kubectl", "get", "pods", "-o", "json"],
-        capture_output=True,
-        text=True,
-        check=True,
+
+    api = get_kubernetes_client()
+
+    response = api.list_namespaced_pod(
+        namespace="default"
     )
 
-    return json.loads(result.stdout)
+    return client.ApiClient().sanitize_for_serialization(
+        response
+    )
 
 
 def analyze_container(container):
 
     incidents = []
 
-    current_state = container.get("state", {})
-
-    # ---------------------------------------------------------
-
-    # Current waiting state
-
-    # ---------------------------------------------------------
+    current_state = container.get(
+        "state",
+        {},
+    )
 
     waiting = current_state.get("waiting")
 
@@ -43,26 +70,12 @@ def analyze_container(container):
         if reason in INCIDENT_REASONS:
 
             incidents.append({
-
                 "type": INCIDENT_REASONS[reason],
-
                 "reason": reason,
-
                 "message": waiting.get("message"),
-
             })
 
-            # CrashLoopBackOff is the current incident.
-
-            # Do not also report the previous Error state.
-
             return incidents
-
-    # ---------------------------------------------------------
-
-    # Current terminated state
-
-    # ---------------------------------------------------------
 
     terminated = current_state.get("terminated")
 
@@ -73,26 +86,21 @@ def analyze_container(container):
         if reason in INCIDENT_REASONS:
 
             incidents.append({
-
                 "type": INCIDENT_REASONS[reason],
-
                 "reason": reason,
-
                 "exit_code": terminated.get("exitCode"),
-
             })
 
             return incidents
 
-    # ---------------------------------------------------------
+    last_state = container.get(
+        "lastState",
+        {},
+    )
 
-    # Previous terminated state
-
-    # ---------------------------------------------------------
-
-    last_state = container.get("lastState", {})
-
-    previous_terminated = last_state.get("terminated")
+    previous_terminated = last_state.get(
+        "terminated"
+    )
 
     if previous_terminated:
 
@@ -101,38 +109,18 @@ def analyze_container(container):
         if reason in INCIDENT_REASONS:
 
             incidents.append({
-
-                "type": INCIDENT_REASONS[reason],
-
-                "reason": reason,
-
-                "exit_code": previous_terminated.get("exitCode"),
-
-            })
-
-    return incidents
-    # ---------------------------------------------------------
-    # Previous terminated state
-    # ---------------------------------------------------------
-
-    last_state = container.get("lastState", {})
-
-    previous_terminated = last_state.get("terminated")
-
-    if previous_terminated:
-        reason = previous_terminated.get("reason")
-
-        if reason in INCIDENT_REASONS:
-            incidents.append({
                 "type": INCIDENT_REASONS[reason],
                 "reason": reason,
-                "exit_code": previous_terminated.get("exitCode"),
+                "exit_code": previous_terminated.get(
+                    "exitCode"
+                ),
             })
 
     return incidents
 
 
 def detect_incidents():
+
     data = get_pods()
 
     incidents = []
@@ -148,12 +136,17 @@ def detect_incidents():
 
         for container in container_statuses:
 
-            detected = analyze_container(container)
+            detected = analyze_container(
+                container
+            )
 
             for incident in detected:
 
                 incident["pod"] = pod_name
-                incident["container"] = container["name"]
+
+                incident["container"] = container[
+                    "name"
+                ]
 
                 incidents.append(incident)
 
@@ -161,6 +154,7 @@ def detect_incidents():
 
 
 def remove_duplicates(incidents):
+
     unique_incidents = []
 
     seen = set()
@@ -177,8 +171,9 @@ def remove_duplicates(incidents):
         if key not in seen:
 
             seen.add(key)
-
-            unique_incidents.append(incident)
+            unique_incidents.append(
+                incident
+            )
 
     return unique_incidents
 
@@ -187,9 +182,12 @@ def main():
 
     incidents = detect_incidents()
 
-    incidents = remove_duplicates(incidents)
+    incidents = remove_duplicates(
+        incidents
+    )
 
     if not incidents:
+
         print("No incidents detected.")
         return
 
@@ -206,4 +204,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
