@@ -20,22 +20,30 @@ pipeline {
         }
 
         stage('Test') {
-            steps {
-                sh '''
-                    echo "Running Python tests..."
+    steps {
+        sh '''
+            echo "Running Python tests..."
 
-                    python3 --version
+            python3 --version
 
-                    python3 -m py_compile app.py
+            echo "Installing Python dependencies..."
 
-                    python3 -m py_compile engine/*.py
+            python3 -m pip install --user -r requirements.txt
 
-                    python3 -m unittest discover \
-                        -s tests \
-                        -v
-                '''
-            }
-        }
+            echo "Compiling Python files..."
+
+            python3 -m py_compile app.py
+
+            python3 -m py_compile engine/*.py
+
+            echo "Running unit tests..."
+
+            python3 -m unittest discover \
+                -s tests \
+                -v
+        '''
+    }
+}
 
         stage('Build Docker Image') {
             steps {
